@@ -1,0 +1,52 @@
+name: Sync to the site board
+# Brings sealed files from sync/ into the site board's database and file store. The function proves this workflow
+# is who it says with GitHub's OIDC token, checks each file's signature, and opens it with a private key that only
+# it holds (it made the key itself, in the project vault): no secrets here. This log is public, so it shows only a
+# short status for each file; the detail stays on the server.
+on:
+  push:
+    branches: [main]
+    paths: ["sync/**", ".github/workflows/sync.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: sync
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bring sealed files in
+        env:
+          FN: https://ccvmugyurqwrszyqubgw.supabase.co/functions/v1/site-board-api
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          token() {
+            curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=pumpgroup-site-board-sync" \
+              | python3 -c 'import sys,json;print(json.load(sys.stdin)["value"])'
+          }
+          ask() {   # ask <json body>: prints "<http code> <status>"
+            out=$(curl -sS -w '\n%{http_code}' -X POST "$FN" -H "Authorization: Bearer $(token)" -H 'Content-Type: application/json' -d "$1" || true)
+            code=$(echo "$out" | tail -1)
+            status=$(echo "$out" | sed '$d' | python3 -c 'import sys,json
+          try: print(json.load(sys.stdin).get("status","?"))
+          except Exception: print("?")')
+            echo "$code $status"
+          }
+          r=$(ask "{\"op\":\"sync_key\",\"sha\":\"$GITHUB_SHA\"}"); echo "sync key: $r"
+          case "$r" in 200*) ;; *) exit 1;; esac
+          files=(sync/*.sealed)
+          if [ ${#files[@]} -eq 0 ]; then echo "Nothing to sync"; exit 0; fi
+          fail=0
+          for f in $(printf '%s\n' "${files[@]}" | sort); do
+            name=$(basename "$f")
+            r=$(ask "{\"op\":\"sync\",\"sha\":\"$GITHUB_SHA\",\"file\":\"$name\"}")
+            echo "$name: $r"
+            case "$r" in 200*) ;; *) fail=1;; esac
+          done
+          exit $fail

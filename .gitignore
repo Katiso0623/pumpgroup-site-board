@@ -1,0 +1,9 @@
+tools/out/
+node_modules/
+__pycache__/
+*.pyc
+*.der
+*.key
+*.pem
+!tools/sync_public.pem
+secret/
