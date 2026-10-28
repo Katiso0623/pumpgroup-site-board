@@ -1,0 +1,83 @@
+name: Check the live site board
+# Checks from outside, with no login: the website is up and shows only the sign-in, and the database, file store
+# and server function give nothing to someone who is not signed in.
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/check.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SITE: https://katiso0623.github.io/pumpgroup-site-board/
+      API: https://ccvmugyurqwrszyqubgw.supabase.co
+    steps:
+      - name: Website is up and shows the sign-in
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do code=$(curl -s -o index.html -w '%{http_code}' "$SITE"); [ "$code" = 200 ] && break; sleep 10; done
+          test "$code" = 200
+          grep -q 'id="pg-signin"' index.html
+      - name: No old platform names in the public files
+        run: |
+          set -euo pipefail
+          for f in index.html app.js sw.js config.js manifest.webmanifest; do curl -fsS "$SITE$f" -o "pub-$f"; done
+          if grep -il 'claude\|anthropic' pub-*; then exit 1; fi
+      - name: Database gives nothing without a login
+        run: |
+          set -euo pipefail
+          KEY=$(curl -fsS "${SITE}config.js" | grep -o 'anonKey: "[^"]*"' | cut -d'"' -f2)
+          echo "KEY=$KEY" >> "$GITHUB_ENV"
+          for fn in sb_whoami sb_changes sb_app_get sb_files_list sb_admin_sync_key sb_admin_sync_public; do
+            code=$(curl -s -o out.json -w '%{http_code}' -X POST "$API/rest/v1/rpc/$fn" -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -d '{}')
+            echo "$fn $code"; test "$code" = 401 -o "$code" = 403 -o "$code" = 404
+          done
+          for t in sb_docs sb_members sb_app sb_assets sb_files sb_sync_log; do
+            code=$(curl -s -o out.json -w '%{http_code}' "$API/rest/v1/$t?select=*" -H "apikey: $KEY" -H "Authorization: Bearer $KEY")
+            echo "$t $code"; test "$code" != 200 || test "$(cat out.json)" = "[]"
+          done
+      - name: File store gives nothing without a login
+        run: |
+          set -euo pipefail
+          for u in "object/site-board/a/bbc40cef2fc77b7a0b2ae7153d72543c" "object/authenticated/site-board/a/bbc40cef2fc77b7a0b2ae7153d72543c" "object/public/site-board/a/bbc40cef2fc77b7a0b2ae7153d72543c"; do
+            code=$(curl -s -o out.bin -w '%{http_code}' "$API/storage/v1/$u" -H "apikey: $KEY" -H "Authorization: Bearer $KEY"); echo "$u $code"; test "$code" != 200
+          done
+          code=$(curl -s -o out.json -w '%{http_code}' -X POST "$API/storage/v1/object/list/site-board" -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -d '{"prefix":"a/"}')
+          echo "list $code $(head -c 200 out.json)"; test "$code" != 200 || test "$(cat out.json)" = "[]"
+      - name: Server function refuses callers it does not know
+        run: |
+          set -euo pipefail
+          code=$(curl -s -o out.json -w '%{http_code}' -X POST "$API/functions/v1/site-board-api" -H 'Content-Type: application/json' -d '{"op":"sync_key","sha":""}')
+          echo "sync_key $code $(cat out.json)"; test "$code" = 403
+          code=$(curl -s -o out.json -w '%{http_code}' -X POST "$API/functions/v1/site-board-api" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -d '{"op":"member_add","email":"x@example.com","full_name":"X","role":"viewer"}')
+          echo "member_add $code $(cat out.json)"; test "$code" = 401
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: In a browser, the sign-in works and a wrong password is answered plainly
+        run: |
+          set -euo pipefail
+          npm init -y >/dev/null && npm i -s playwright@1.48.2 >/dev/null && npx playwright install --with-deps chromium >/dev/null
+          cat > b.cjs <<'JS'
+          const {chromium} = require('playwright');
+          (async () => {
+            const b = await chromium.launch(), p = await b.newPage(), errs = [];
+            p.on('pageerror', e => errs.push(e.message));
+            p.on('console', m => { if (m.type() === 'error' && !/Failed to load resource|400|401/.test(m.text())) errs.push(m.text()); });
+            await p.goto(process.env.SITE);
+            await p.waitForSelector('#pg-signin:not([hidden])', {timeout: 30000});
+            const sw = await p.evaluate(async () => { const r = await navigator.serviceWorker.getRegistration(); return !!r; });
+            await p.fill('#pgEmail', 'nobody@example.com'); await p.fill('#pgPass', 'not-a-password-1');
+            await p.click('#pgFSignIn button[type=submit]');
+            await p.waitForFunction(() => /do not match/.test(document.querySelector('#pgSignMsg').textContent), null, {timeout: 20000});
+            const board = await p.evaluate(() => !document.querySelector('#pgBoard').hidden || !!window.PG_DATA);
+            console.log(JSON.stringify({sw, board, errs}));
+            await b.close();
+            if (!sw || board || errs.length) process.exit(1);
+          })().catch(e => { console.error(e); process.exit(1); });
+          JS
+          node b.cjs
