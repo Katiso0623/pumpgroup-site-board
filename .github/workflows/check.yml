@@ -4,24 +4,47 @@ name: Check the live site board
 on:
   push:
     branches: [main]
-    paths: [".github/workflows/check.yml"]
+    paths: [".github/workflows/check.yml", "site/CNAME"]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
-      SITE: https://katiso0623.github.io/pumpgroup-site-board/
+      GITHUB_IO: https://katiso0623.github.io/pumpgroup-site-board/
       API: https://ccvmugyurqwrszyqubgw.supabase.co
     steps:
-      - name: Website is up and shows the sign-in
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: site/CNAME
+          sparse-checkout-cone-mode: false
+      - name: Which address the site board is on
         run: |
           set -euo pipefail
-          for i in $(seq 1 30); do code=$(curl -s -o index.html -w '%{http_code}' "$SITE"); [ "$code" = 200 ] && break; sleep 10; done
+          # site/CNAME holds the site board's own address once it has one; until then it is the github.io address
+          if [ -s site/CNAME ]; then echo "SITE=https://$(tr -d ' \r\n' < site/CNAME)/" >> "$GITHUB_ENV"; else echo "SITE=$GITHUB_IO" >> "$GITHUB_ENV"; fi
+      - name: Website is up on its secure address and shows the sign-in
+        run: |
+          set -euo pipefail
+          echo "Checking $SITE"
+          # a new address can take a while for GitHub to give it its certificate: keep asking for up to 20 minutes
+          code=000
+          for i in $(seq 1 120); do code=$(curl -s --connect-timeout 10 --max-time 30 -o index.html -w '%{http_code}' "$SITE" || true); [ "$code" = 200 ] && grep -q 'id="pg-signin"' index.html && break; sleep 10; done
           test "$code" = 200
           grep -q 'id="pg-signin"' index.html
+      - name: The old github.io link leads to the site board
+        if: env.SITE != env.GITHUB_IO
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            final=$(curl -sL --connect-timeout 10 --max-time 30 -o old.html -w '%{url_effective}' "$GITHUB_IO" || true)
+            echo "$GITHUB_IO -> $final"
+            [ "${final#*://}" = "${SITE#https://}" ] && grep -q 'id="pg-signin"' old.html && exit 0
+            sleep 20
+          done
+          exit 1
       - name: No old platform names in the public files
         run: |
           set -euo pipefail
@@ -81,3 +104,16 @@ jobs:
           })().catch(e => { console.error(e); process.exit(1); });
           JS
           node b.cjs
+      - name: Plain http and the old link go to the secure address
+        if: env.SITE != env.GITHUB_IO
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            http=$(curl -s --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code} %{redirect_url}' "http://${SITE#https://}" || true)
+            final=$(curl -sL --connect-timeout 10 --max-time 30 -o /dev/null -w '%{url_effective}' "$GITHUB_IO" || true)
+            echo "http -> $http ; old link -> $final"
+            [ "$http" = "301 $SITE" ] && [ "$final" = "$SITE" ] && exit 0
+            sleep 20
+          done
+          echo "::error::The site board still opens on plain http. In the repository's Settings, Pages, tick Enforce HTTPS (it can be ticked once the certificate is ready), then run this check again."
+          exit 1
