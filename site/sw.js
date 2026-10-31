@@ -1,6 +1,6 @@
 // Pump Group site board: keeps the app's own files on the device, and opens photos and documents (the _blob/<id>
 // links) with the signed-in person's access. Data always comes live from the server after sign-in.
-const BUILD = "4c5ffa6c06";
+const BUILD = "964a10ea68";
 const SHELL = ["", "index.html", "app.js?v=c07ff0f93a", "config.js?v=d9f60a0b7f", "logo.png", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png", "icons/favicon-32.png", "vendor/three.min.js?v=9274bbcec8", "vendor/OrbitControls.js?v=02bb4ade71", "vendor/xlsx.full.min.js?v=c9506197ca", "vendor/jszip.min.js?v=acc7e41455", "vendor/supabase.js?v=8596965fe9"];
 const SHELL_CACHE = 'pg-sb-shell-' + BUILD;
 // one store of saved files per person and access level, so a shared phone never shows one person's files to the
