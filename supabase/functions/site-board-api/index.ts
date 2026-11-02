@@ -17,7 +17,7 @@ const REPO_ID = "1437260227";
 const REPO_OWNER_ID = "341032409";
 const AUDIENCE = "pumpgroup-site-board-sync";
 // public halves of the keys allowed to sign sealed files (Ed25519, base64 of the 32 raw bytes), by key id
-const SIGNERS: Record<string, string> = {"945b051ee7c2d332": "l7lCSszm6LYjWGE1gDVoMmSXbHWbNq0yhYZOoGaf7dk="};
+const SIGNERS: Record<string, string> = {"945b051ee7c2d332": "l7lCSszm6LYjWGE1gDVoMmSXbHWbNq0yhYZOoGaf7dk=", "a47592aff267c686": "EKQzjwwo/EtUqrUk8T4+/ZY24X4m1AE7+mdrXK46MLo="};
 const JWKS = jose.createRemoteJWKSet(new URL("https://token.actions.githubusercontent.com/.well-known/jwks"));
 const cors = {
   "Access-Control-Allow-Origin": "*",
