@@ -28,8 +28,8 @@ Order values go into the site board's cost ledger (directors only), each one lin
   name order into one `app.js`), fonts, icons, and the two libraries it uses (`vendor/`)
 - `tools/build.py` builds `src/` into the published folder; `tools/make_icons.py` draws the app icons
 - `../site/requisitions/` the built app, published with the site board by `.github/workflows/pages.yml`
-- the access rule for the app's records is `20261110_03_requisitions.sql`; it joins `../supabase/migrations/` on
-  the day it goes into the database
+- `../supabase/migrations/20261110_03_requisitions.sql` the access rule for the app's records (in the database since
+  10 November 2026)
 
 The app's records sit in the site board's document store, in groups of their own: `rq` (requisitions, orders,
 deliveries, messages), `rq_office` (approvals), `rq_cfg` (the letterhead), and, for the directors only,
